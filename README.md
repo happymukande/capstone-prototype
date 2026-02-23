@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Welcome to your Expo app 👋
 
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
@@ -100,3 +101,7 @@ Expected local backend endpoints:
 
 - `GET /progress/:userId` -> `{ "progressMap": { ... } }`
 - `POST /progress/sync` with `{ "userId": "local-dev-user", "progressMap": { ... } }`
+=======
+# capstone-project
+This is the repository for my final year project, Eco-Ed.
+>>>>>>> dc962ce5ef4cbc63f918467114b530eb357ffa85
