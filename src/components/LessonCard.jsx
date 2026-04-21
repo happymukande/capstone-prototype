@@ -1,22 +1,44 @@
 import React from 'react';
 
+const CARD_THEME = {
+  border: '#d7e7d9',
+  surface: '#ffffff',
+  text: '#102318',
+  secondary: '#345044',
+  muted: '#5f7a6f',
+  progressTrack: '#dfeade',
+  progressFill: '#2f8f46',
+  button: '#155724',
+  buttonText: '#ffffff',
+};
+
 const styles = {
   card: {
-    border: '1px solid #ddd',
-    borderRadius: 8,
+    border: `1px solid ${CARD_THEME.border}`,
+    borderRadius: 16,
     padding: 16,
     marginBottom: 12,
     display: 'flex',
     flexDirection: 'column',
+    background: CARD_THEME.surface,
   },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  title: { margin: 0, fontSize: 18 },
-  desc: { margin: '8px 0', color: '#444' },
-  meta: { display: 'flex', gap: 12, color: '#666', fontSize: 14 },
+  title: { margin: 0, fontSize: 18, color: CARD_THEME.text },
+  desc: { margin: '8px 0', color: CARD_THEME.secondary, lineHeight: 1.5 },
+  meta: { display: 'flex', gap: 12, color: CARD_THEME.muted, fontSize: 14 },
   progressWrap: { marginTop: 8 },
-  progressBar: { height: 8, background: '#eee', borderRadius: 4, overflow: 'hidden' },
-  progressFill: (pct) => ({ width: `${pct}%`, height: '100%', background: '#4caf50' }),
-  button: { marginTop: 12, padding: '8px 12px', border: 'none', background: '#1976d2', color: '#fff', borderRadius: 4, cursor: 'pointer' },
+  progressBar: { height: 8, background: CARD_THEME.progressTrack, borderRadius: 999, overflow: 'hidden' },
+  progressFill: (pct) => ({ width: `${pct}%`, height: '100%', background: CARD_THEME.progressFill }),
+  button: {
+    marginTop: 12,
+    padding: '10px 14px',
+    border: 'none',
+    background: CARD_THEME.button,
+    color: CARD_THEME.buttonText,
+    borderRadius: 10,
+    cursor: 'pointer',
+    fontWeight: 700,
+  },
 };
 
 export default function LessonCard({ lesson, onClick }) {

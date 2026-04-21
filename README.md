@@ -1,107 +1,94 @@
-<<<<<<< HEAD
-# Welcome to your Expo app 👋
+# Eco-Ed Mobile App (Expo)
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Eco-Ed is an Expo/React Native learning app with:
+- lesson + quiz flow
+- gamified progress (XP, streaks, daily challenges)
+- role-based navigation
+- Supabase-backed cloud persistence
 
-## Get started
+## 1. Run Locally
 
-To start the app, in your terminal run:
-
-```bash
-npm run start
-```
-
-In the output, you'll find options to open the app in:
-
-- [a development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [an Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [an iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Workflows
-
-This project is configured to use [EAS Workflows](https://docs.expo.dev/eas/workflows/get-started/) to automate some development and release processes. These commands are set up in [`package.json`](./package.json) and can be run using NPM scripts in your terminal.
-
-### Previews
-
-Run `npm run draft` to [publish a preview update](https://docs.expo.dev/eas/workflows/examples/publish-preview-update/) of your project, which can be viewed in Expo Go or in a development build.
-
-### Development Builds
-
-Run `npm run development-builds` to [create a development build](https://docs.expo.dev/eas/workflows/examples/create-development-builds/). Note - you'll need to follow the [Prerequisites](https://docs.expo.dev/eas/workflows/examples/create-development-builds/#prerequisites) to ensure you have the correct emulator setup on your machine.
-
-### Production Deployments
-
-Run `npm run deploy` to [deploy to production](https://docs.expo.dev/eas/workflows/examples/deploy-to-production/). Note - you'll need to follow the [Prerequisites](https://docs.expo.dev/eas/workflows/examples/deploy-to-production/#prerequisites) to ensure you're set up to submit to the Apple and Google stores.
-
-## Hosting
-
-Expo offers hosting for websites and API functions via EAS Hosting. See the [Getting Started](https://docs.expo.dev/eas/hosting/get-started/) guide to learn more.
-
-
-## Get a fresh project
-
-When you're ready, run:
+Install dependencies and start Expo:
 
 ```bash
-npm run reset-project
+npm install
+npx expo start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## 2. Configure Cloud Storage (Supabase)
 
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
-
-## Progress Tracking + Backend Test Contract
-
-The app now tracks lesson progress dynamically:
-
-- lesson opened (`started`, `openedCount`, `lastOpenedAt`)
-- quiz attempts (`quizAttempts`)
-- best score (`bestScore`)
-- completion status (`completed`) using pass threshold `80%`
-
-Create `.env` from `.env.example` and choose one backend mode.
-
-Supabase mode (recommended):
+Create `.env` from `.env.example` and set:
 
 ```bash
 EXPO_PUBLIC_SUPABASE_URL=your-project-url
 EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 ```
 
-Then run `supabase/schema.sql` in Supabase SQL Editor.
+Keep `EXPO_PUBLIC_API_BASE_URL` empty if you want direct Supabase mode.
 
-Local mock backend mode:
+Then run [`supabase/schema.sql`](./supabase/schema.sql) in Supabase SQL Editor.
+
+Important:
+- Enable **Anonymous Sign-Ins** in Supabase Auth (`Authentication -> Providers -> Anonymous`) for the current app bootstrap flow.
+- The app resolves a Supabase user session, then syncs `user_progress` (`progress_map` + `gamification_state`) automatically.
+
+## 3. Verify Cloud Sync
+
+Open the app and go to `Settings`:
+- check `Cloud Sync Enabled`
+- check `Cloud Sync Status`
+- confirm `Cloud User ID` is populated
+
+You can also use the `Courses` screen buttons:
+- `Pull Cloud`
+- `Push Cloud`
+
+## 4. Deploy (EAS) With Cloud Env Vars
+
+Set public env vars for each EAS environment you use:
 
 ```bash
-EXPO_PUBLIC_API_BASE_URL=http://localhost:4000
+eas env:create --name EXPO_PUBLIC_SUPABASE_URL --value "https://<project-ref>.supabase.co" --environment preview
+eas env:create --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "<anon-key>" --environment preview
+
+eas env:create --name EXPO_PUBLIC_SUPABASE_URL --value "https://<project-ref>.supabase.co" --environment production
+eas env:create --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "<anon-key>" --environment production
 ```
 
-Run:
+Then build/update normally (`npm run draft`, `npm run deploy`, or `eas build ...`).
+
+## 5. Fallback Behavior
+
+If no Supabase and no REST backend config is present:
+- lessons load from local curriculum fallback
+- progress persists only in device `AsyncStorage`
+- no cross-device sync
+
+### Demo Admin Mode (Anonymous Testing)
+
+If you want to test Teacher/Admin lesson editing without a backend or account:
+- Set `EXPO_PUBLIC_ALLOW_LOCAL_ADMIN=true`
+- The admin screen will use local AsyncStorage for create/edit/publish/delete
+- Student views will read from the same local curriculum store
+
+### Fully Local Frontend Mode
+
+If Supabase auth is blocking your presentation, you can disable backend calls entirely:
+- Set `EXPO_PUBLIC_DISABLE_BACKEND=true`
+- The app runs fully on local data (curriculum + progress)
+
+## Supabase local test script
+
+To verify your public (anon) keys can read published lessons, create a local `.env` from `.env.example` and run the included test script:
 
 ```bash
-npm run backend
+# install deps if needed
+npm install
+
+# run the test (environment variables loaded from your shell or .env via dotenv)
+EXPO_PUBLIC_SUPABASE_URL="https://<project-ref>.supabase.co" \
+EXPO_PUBLIC_SUPABASE_ANON_KEY="<anon-key>" \
+node scripts/test-supabase-connection.js
 ```
 
-Expected local backend endpoints:
-
-- `GET /progress/:userId` -> `{ "progressMap": { ... } }`
-- `POST /progress/sync` with `{ "userId": "local-dev-user", "progressMap": { ... } }`
-=======
-# capstone-project
-This is the repository for my final year project, Eco-Ed.
->>>>>>> dc962ce5ef4cbc63f918467114b530eb357ffa85
+If the query returns published lessons, your anon key and RLS read policy are configured correctly.

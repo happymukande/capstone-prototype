@@ -1,0 +1,119 @@
+{
+  "lessons": [
+    {
+      "id": "lesson-1",
+      "title": "Energy Basics and Why Conservation Matters",
+      "description": "Understand Zambia's energy context and why daily conservation habits matter.",
+      "status": "published",
+      "duration": 20,
+      "audience": "secondary-school",
+      "tags": [
+        "energy",
+        "conservation",
+        "basics"
+      ],
+      "lectureNotes": [
+        "Energy conservation means using less electricity without reducing quality of life.",
+        "In hydro-dependent systems, drought and demand spikes can increase load shedding risk.",
+        "Small household actions scale across communities and reduce total grid pressure."
+      ],
+      "quizzes": [
+        {
+          "question": "What is the primary goal of energy conservation?",
+          "options": [
+            "Use more appliances",
+            "Reduce unnecessary energy use",
+            "Avoid all electricity"
+          ],
+          "answer": 1,
+          "explanation": "Conservation focuses on reducing waste while still meeting real needs."
+        },
+        {
+          "question": "Why are school programs important for conservation?",
+          "options": [
+            "Students influence home habits",
+            "They increase power demand",
+            "They replace power plants"
+          ],
+          "answer": 0,
+          "explanation": "Students can transfer practical habits to families and communities."
+        }
+      ],
+      "createdAt": "2026-02-23T00:00:00.000Z",
+      "updatedAt": "2026-02-23T00:00:00.000Z"
+    },
+    {
+      "id": "lesson-2",
+      "title": "Home and School Energy-Saving Habits",
+      "description": "Learn practical steps for lighting, appliances, and device charging.",
+      "status": "published",
+      "duration": 25,
+      "audience": "secondary-school",
+      "tags": [
+        "habits",
+        "home",
+        "school"
+      ],
+      "lectureNotes": [
+        "Switch off lights and fans when leaving rooms, even for short periods.",
+        "Use natural daylight where possible and group tasks to reduce repeated appliance use.",
+        "Unplug chargers and idle electronics to avoid standby power consumption."
+      ],
+      "quizzes": [
+        {
+          "question": "Which action reduces standby power use?",
+          "options": [
+            "Leaving chargers plugged in",
+            "Unplugging idle devices",
+            "Charging devices overnight daily"
+          ],
+          "answer": 1,
+          "explanation": "Idle electronics can still draw power when plugged in."
+        },
+        {
+          "question": "What is a good classroom conservation habit?",
+          "options": [
+            "Keep all lights on all day",
+            "Use daylight before switching on lights",
+            "Run projectors during breaks"
+          ],
+          "answer": 1,
+          "explanation": "Using available daylight reduces unnecessary electricity use."
+        }
+      ],
+      "createdAt": "2026-02-23T00:00:00.000Z",
+      "updatedAt": "2026-02-23T00:00:00.000Z"
+    },
+    {
+      "id": "lesson-3",
+      "title": "Mini Energy Audit Challenge",
+      "description": "Draft lesson for a simple audit activity students can run at home or school.",
+      "status": "draft",
+      "duration": 30,
+      "audience": "secondary-school",
+      "tags": [
+        "audit",
+        "activity"
+      ],
+      "lectureNotes": [
+        "List the top 5 devices used daily and estimate usage duration.",
+        "Identify two unnecessary uses and propose alternatives.",
+        "Track improvements for one week and compare results."
+      ],
+      "quizzes": [
+        {
+          "question": "What is the first step in a mini energy audit?",
+          "options": [
+            "Buy new appliances",
+            "Identify high-usage devices",
+            "Disconnect the main power supply"
+          ],
+          "answer": 1,
+          "explanation": "Audits start by identifying where most energy is used."
+        }
+      ],
+      "createdAt": "2026-02-23T00:00:00.000Z",
+      "updatedAt": "2026-02-23T00:00:00.000Z"
+    }
+  ]
+}
