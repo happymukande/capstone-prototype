@@ -91,7 +91,7 @@ export default function LessonPage() {
   const allSteps: Step[] = [...noteSteps, { type: 'quiz', content: 'Checkpoint quiz' }];
   const isLastStep = step === allSteps.length - 1;
   const isQuizStep = allSteps[step]?.type === 'quiz';
-  const progressWidth = `${((step + 1) / allSteps.length) * 100}%`;
+  const progressWidth = `${((step + 1) / allSteps.length) * 100}%` as const;
 
   return (
     <ScrollView contentContainerStyle={styles.container}>

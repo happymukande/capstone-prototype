@@ -24,7 +24,7 @@ EXPO_PUBLIC_SUPABASE_URL=your-project-url
 EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 ```
 
-Keep `EXPO_PUBLIC_API_BASE_URL` empty if you want direct Supabase mode.
+Keep `EXPO_PUBLIC_API_BASE_URL` empty if you want direct Supabase mode for lessons/progress. AI chat is server-backed and requires this value to point to a deployed HTTPS endpoint in production builds.
 
 Then run [`supabase/schema.sql`](./supabase/schema.sql) in Supabase SQL Editor.
 
@@ -54,6 +54,15 @@ eas env:create --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "<anon-key>" --envir
 eas env:create --name EXPO_PUBLIC_SUPABASE_URL --value "https://<project-ref>.supabase.co" --environment production
 eas env:create --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "<anon-key>" --environment production
 ```
+
+For AI chat, deploy the backend behind HTTPS and set the public base URL for the EAS environments that should have chat enabled:
+
+```bash
+eas env:create --name EXPO_PUBLIC_API_BASE_URL --value "https://<your-api-host>" --environment preview
+eas env:create --name EXPO_PUBLIC_API_BASE_URL --value "https://<your-api-host>" --environment production
+```
+
+The backend itself also needs `GROQ_API_KEY` set on the server. Do not expose that key through `EXPO_PUBLIC_` variables.
 
 Then build/update normally (`npm run draft`, `npm run deploy`, or `eas build ...`).
 

@@ -1,13 +1,24 @@
-const http = require('http');
-const { promises: fs } = require('fs');
 const path = require('path');
+const ROOT_DIR = process.cwd();
+require('dotenv').config({ path: path.join(ROOT_DIR, '.env') });
+
+const express = require('express');
+const cors = require('cors');
+const OpenAI = require('openai');
+const { promises: fs } = require('fs');
 
 const PORT = Number(process.env.PORT || 4000);
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = path.join(ROOT_DIR, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'progress.json');
 const CONTENT_FILE = path.join(DATA_DIR, 'content.json');
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key';
 const TEACHER_API_KEY = process.env.TEACHER_API_KEY || '';
+const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
+const groq = new OpenAI({
+  apiKey: GROQ_API_KEY || 'missing-groq-api-key',
+  baseURL: 'https://api.groq.com/openai/v1',
+});
 
 const VALID_STATUSES = new Set(['draft', 'published', 'archived']);
 const PASS_THRESHOLD = Number(process.env.LESSON_PASS_THRESHOLD || 80);
@@ -18,13 +29,7 @@ if (ADMIN_API_KEY) ACCESS_TOKENS.set(ADMIN_API_KEY, 'admin');
 if (TEACHER_API_KEY) ACCESS_TOKENS.set(TEACHER_API_KEY, 'teacher');
 
 function sendJson(res, statusCode, payload) {
-  res.writeHead(statusCode, {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-admin-key',
-    'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
-  });
-  res.end(JSON.stringify(payload));
+  res.status(statusCode).json(payload);
 }
 
 async function ensureStore() {
@@ -75,6 +80,8 @@ async function writeContentStore(store) {
 }
 
 async function readBody(req) {
+  if (req.body && typeof req.body === 'object') return req.body;
+
   let body = '';
   for await (const chunk of req) {
     body += chunk;
@@ -88,6 +95,31 @@ async function readBody(req) {
     error.statusCode = 400;
     throw error;
   }
+}
+
+async function createChatReply(message) {
+  if (!GROQ_API_KEY || GROQ_API_KEY === 'your_groq_api_key_here') {
+    const error = new Error('GROQ_API_KEY is not configured on the backend. Add your GroqCloud key to backend/.env.');
+    error.statusCode = 500;
+    throw error;
+  }
+
+  const completion = await groq.chat.completions.create({
+    model: GROQ_MODEL,
+    messages: [
+      {
+        role: 'system',
+        content:
+          'You are a friendly, concise learning assistant inside a mobile education app. Keep answers clear, helpful, and age-appropriate.',
+      },
+      {
+        role: 'user',
+        content: message,
+      },
+    ],
+  });
+
+  return completion.choices?.[0]?.message?.content?.trim() || 'I could not generate a response right now.';
 }
 
 function getUserIdFromPath(urlPathname) {
@@ -398,7 +430,24 @@ function calculateAnalyticsSnapshot(progressStore, contentStore) {
   };
 }
 
-const server = http.createServer(async (req, res) => {
+const app = express();
+
+app.use(cors({
+  origin: '*',
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-key'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+}));
+app.use(express.json());
+
+app.use((error, req, res, next) => {
+  if (error instanceof SyntaxError) {
+    sendJson(res, 400, { error: 'Invalid JSON request body.' });
+    return;
+  }
+  next(error);
+});
+
+app.use(async (req, res) => {
   try {
     const reqUrl = new URL(req.url, `http://${req.headers.host}`);
     const pathname = reqUrl.pathname;
@@ -421,6 +470,20 @@ const server = http.createServer(async (req, res) => {
           adminRoleEnabled: Boolean(ADMIN_API_KEY),
         },
       });
+      return;
+    }
+
+    if (req.method === 'POST' && pathname === '/chat') {
+      const payload = await readBody(req);
+      const message = typeof payload.message === 'string' ? payload.message.trim() : '';
+
+      if (!message) {
+        sendJson(res, 400, { error: 'message is required.' });
+        return;
+      }
+
+      const reply = await createChatReply(message);
+      sendJson(res, 200, { reply });
       return;
     }
 
@@ -600,6 +663,6 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Backend API listening on http://0.0.0.0:${PORT}`);
 });

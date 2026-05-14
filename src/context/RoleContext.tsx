@@ -1,19 +1,16 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, ReactNode, useContext, useMemo } from 'react';
+import { useAuth } from '../../context/AuthProvider';
 
 export type AppRole = 'student' | 'teacher' | 'admin';
 
 interface RoleContextType {
   role: AppRole;
   isHydrated: boolean;
-  setRole: (nextRole: AppRole) => void;
 }
 
 interface RoleProviderProps {
   children: ReactNode;
 }
-
-const ROLE_STORAGE_KEY = 'capstone.role.v1';
 
 const ALLOWED_ROLES: AppRole[] = ['student', 'teacher', 'admin'];
 
@@ -33,43 +30,15 @@ function getDefaultRole(): AppRole {
 const RoleContext = createContext<RoleContextType | null>(null);
 
 export function RoleProvider({ children }: RoleProviderProps) {
-  const [role, setRoleState] = useState<AppRole>(getDefaultRole);
-  const [isHydrated, setIsHydrated] = useState(false);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const hydrateRole = async () => {
-      try {
-        const stored = await AsyncStorage.getItem(ROLE_STORAGE_KEY);
-        if (stored && isAppRole(stored) && isMounted) {
-          setRoleState(stored);
-        }
-      } finally {
-        if (isMounted) setIsHydrated(true);
-      }
-    };
-
-    void hydrateRole();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  const setRole = (nextRole: AppRole) => {
-    setRoleState(nextRole);
-    void AsyncStorage.setItem(ROLE_STORAGE_KEY, nextRole).catch(() => {
-      // Ignore persistence failure and keep in-memory role.
-    });
-  };
+  const { role: authRole, isLoading } = useAuth();
+  const role = isAppRole(authRole) ? authRole : getDefaultRole();
 
   const value = useMemo(
     () => ({
       role,
-      isHydrated,
-      setRole,
+      isHydrated: !isLoading,
     }),
-    [role, isHydrated]
+    [role, isLoading]
   );
 
   return <RoleContext.Provider value={value}>{children}</RoleContext.Provider>;

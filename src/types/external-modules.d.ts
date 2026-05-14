@@ -17,6 +17,30 @@ declare module '../../services/authService' {
   export function ensureSupabaseUserId(): Promise<string | null>
 }
 
+declare module '../../services/avatarService' {
+  export function pickAndUploadAvatar(userId: string): Promise<string | null>
+  export function captureAndUploadAvatar(userId: string): Promise<string | null>
+  export function removeAvatar(userId: string): Promise<void>
+  export function uploadAvatarAsset(userId: string, asset: { uri: string; fileSize?: number | null }): Promise<string>
+  export const AVATAR_SERVICE_CONFIG: {
+    bucket: string
+    maxBytes: number
+    profileTable: string
+  }
+}
+
+declare module '../services/avatarService' {
+  export function pickAndUploadAvatar(userId: string): Promise<string | null>
+  export function captureAndUploadAvatar(userId: string): Promise<string | null>
+  export function removeAvatar(userId: string): Promise<void>
+  export function uploadAvatarAsset(userId: string, asset: { uri: string; fileSize?: number | null }): Promise<string>
+  export const AVATAR_SERVICE_CONFIG: {
+    bucket: string
+    maxBytes: number
+    profileTable: string
+  }
+}
+
 declare module '../../lib/supabaseClient' {
   const supabase: any
   export const hasSupabaseConfig: boolean

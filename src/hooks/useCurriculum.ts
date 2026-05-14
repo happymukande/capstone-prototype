@@ -40,9 +40,7 @@ export function useCurriculum(): UseCurriculumResult {
     try {
       const remoteLessons = await fetchCurriculum(false);
       if (!remoteLessons) {
-        throw new Error(
-          'No curriculum backend is configured. Set Supabase keys or EXPO_PUBLIC_API_BASE_URL.'
-        );
+        throw new Error('No lesson content is available yet.');
       }
       setLessons(sortLessons(remoteLessons));
     } catch (err) {
@@ -62,9 +60,7 @@ export function useCurriculum(): UseCurriculumResult {
       try {
         const remoteLessons = await fetchCurriculum(false);
         if (!remoteLessons) {
-          throw new Error(
-            'No curriculum backend is configured. Set Supabase keys or EXPO_PUBLIC_API_BASE_URL.'
-          );
+          throw new Error('No lesson content is available yet.');
         }
         if (!isMounted) return;
         setLessons(sortLessons(remoteLessons));

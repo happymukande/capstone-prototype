@@ -1,9 +1,8 @@
+import supabase, { hasSupabaseConfig } from '../../lib/supabaseClient';
 import { LESSON_PASS_THRESHOLD } from '../constants/progress';
 import { LessonContent } from '../types/curriculum';
 import { ProgressMap, loadProgressState } from './progressStorage';
 import { fetchCurriculum } from './curriculumApi';
-
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? '';
 
 type SupabaseProgressRow = {
   user_id: string;
@@ -41,23 +40,6 @@ export interface TeacherAnalyticsSummary {
   passThreshold: number;
   overview: TeacherAnalyticsOverview;
   perLesson: TeacherAnalyticsLesson[];
-}
-
-function hasRestBackendConfig() {
-  return Boolean(API_BASE_URL && API_BASE_URL.trim());
-}
-
-function getAdminHeaders(adminKey?: string) {
-  const headers: Record<string, string> = {};
-  if (adminKey) {
-    headers['x-admin-key'] = adminKey;
-    headers.Authorization = `Bearer ${adminKey}`;
-  }
-  return headers;
-}
-
-function shouldPreferRest(adminKey?: string) {
-  return Boolean(hasRestBackendConfig() && adminKey);
 }
 
 function isStarted(progress: any) {
@@ -197,37 +179,25 @@ function calculateAnalyticsFromData(
   };
 }
 
-export async function fetchTeacherAnalytics(adminKey?: string): Promise<TeacherAnalyticsSummary | null> {
-  if (shouldPreferRest(adminKey)) {
-    const response = await fetch(`${API_BASE_URL}/analytics/summary`, {
-      headers: getAdminHeaders(adminKey),
-    });
+export async function fetchTeacherAnalytics(_adminKey?: string): Promise<TeacherAnalyticsSummary | null> {
+  const lessons = (await fetchCurriculum(true)) ?? [];
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch analytics (${response.status})`);
+  if (hasSupabaseConfig && supabase) {
+    const { data, error } = await supabase
+      .from('user_progress')
+      .select('user_id,progress_map');
+
+    if (!error && Array.isArray(data)) {
+      return calculateAnalyticsFromData(lessons as LessonContent[], data as SupabaseProgressRow[], LESSON_PASS_THRESHOLD);
     }
-
-    return (await response.json()) as TeacherAnalyticsSummary;
   }
 
-  if (!hasRestBackendConfig()) {
-    const lessons = (await fetchCurriculum(true, adminKey)) ?? [];
-    const progressState = await loadProgressState();
-    const progressRows: SupabaseProgressRow[] = [
-      {
-        user_id: 'local-demo-user',
-        progress_map: progressState.progressMap,
-      },
-    ];
-    return calculateAnalyticsFromData(lessons as LessonContent[], progressRows, LESSON_PASS_THRESHOLD);
-  }
-
-  const response = await fetch(`${API_BASE_URL}/analytics/summary`, {
-    headers: getAdminHeaders(adminKey),
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to fetch analytics (${response.status})`);
-  }
-
-  return (await response.json()) as TeacherAnalyticsSummary;
+  const progressState = await loadProgressState();
+  const progressRows: SupabaseProgressRow[] = [
+    {
+      user_id: 'local-demo-user',
+      progress_map: progressState.progressMap,
+    },
+  ];
+  return calculateAnalyticsFromData(lessons as LessonContent[], progressRows, LESSON_PASS_THRESHOLD);
 }

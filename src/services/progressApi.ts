@@ -1,11 +1,6 @@
+import supabase, { hasSupabaseConfig } from '../../lib/supabaseClient';
 import { createInitialGamificationState } from './gamification';
 import { AppProgressState, LessonProgress, ProgressMap } from './progressStorage';
-
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? '';
-
-function hasRestBackendConfig() {
-  return Boolean(API_BASE_URL && API_BASE_URL.trim());
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -63,32 +58,36 @@ function normalizeProgressMap(raw: unknown): ProgressMap {
 }
 
 export async function fetchRemoteProgressState(userId: string): Promise<AppProgressState | null> {
-  if (!hasRestBackendConfig()) return null;
+  if (!hasSupabaseConfig || !supabase) return null;
 
-  const response = await fetch(`${API_BASE_URL}/progress/${encodeURIComponent(userId)}`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch progress (${response.status})`);
-  }
+  const { data, error } = await supabase
+    .from('user_progress')
+    .select('progress_map,gamification_state')
+    .eq('user_id', userId)
+    .maybeSingle();
 
-  const payload = (await response.json()) as { progressMap?: unknown };
+  if (error) throw error;
+  if (!data) return null;
+
   return {
-    progressMap: normalizeProgressMap(payload.progressMap),
-    gamification: createInitialGamificationState(),
+    progressMap: normalizeProgressMap(data.progress_map),
+    gamification: isRecord(data.gamification_state)
+      ? { ...createInitialGamificationState(), ...data.gamification_state }
+      : createInitialGamificationState(),
   };
 }
 
 export async function syncRemoteProgressState(userId: string, progressState: AppProgressState): Promise<void> {
-  if (!hasRestBackendConfig()) return;
+  if (!hasSupabaseConfig || !supabase) return;
 
-  const response = await fetch(`${API_BASE_URL}/progress/sync`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId, progressMap: progressState.progressMap }),
+  const { error } = await supabase.from('user_progress').upsert({
+    user_id: userId,
+    progress_map: progressState.progressMap,
+    gamification_state: progressState.gamification,
+    updated_at: new Date().toISOString(),
   });
 
-  if (!response.ok) {
-    throw new Error(`Failed to sync progress (${response.status})`);
-  }
+  if (error) throw error;
 }
 
 export async function fetchRemoteProgress(userId: string): Promise<ProgressMap | null> {

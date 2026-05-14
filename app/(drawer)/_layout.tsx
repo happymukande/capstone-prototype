@@ -11,6 +11,7 @@ export default function DrawerLayout() {
   const { width } = useWindowDimensions();
   const isLargeScreen = width >= 920;
   const showAdmin = role === 'teacher' || role === 'admin';
+  const showAdminDashboard = role === 'admin';
 
   return (
     <Drawer
@@ -64,6 +65,16 @@ export default function DrawerLayout() {
           drawerIcon: ({ color, size }) => <Ionicons name="person-circle-outline" color={color} size={size} />,
         }}
       />
+      <Drawer.Protected guard={showAdminDashboard}>
+        <Drawer.Screen
+          name="admin-dashboard"
+          options={{
+            title: 'Admin Dashboard',
+            drawerLabel: 'Admin Dashboard',
+            drawerIcon: ({ color, size }) => <Ionicons name="analytics-outline" color={color} size={size} />,
+          }}
+        />
+      </Drawer.Protected>
       <Drawer.Screen
         name="courses"
         options={{
@@ -81,11 +92,11 @@ export default function DrawerLayout() {
         }}
       />
       <Drawer.Screen
-        name="settings"
+        name="chat"
         options={{
-          title: 'Settings',
-          drawerLabel: 'Settings',
-          drawerIcon: ({ color, size }) => <Ionicons name="settings-outline" color={color} size={size} />,
+          title: 'AI Chat',
+          drawerLabel: 'AI Chat',
+          drawerIcon: ({ color, size }) => <Ionicons name="chatbubble-ellipses-outline" color={color} size={size} />,
         }}
       />
       <Drawer.Screen
@@ -94,14 +105,6 @@ export default function DrawerLayout() {
           title: 'Test Your Knowledge',
           drawerLabel: 'Test your knowledge',
           drawerIcon: ({ color, size }) => <Ionicons name="game-controller-outline" color={color} size={size} />,
-        }}
-      />
-      <Drawer.Screen
-        name="support-us"
-        options={{
-          title: 'Support Us',
-          drawerLabel: 'Support Us',
-          drawerIcon: ({ color, size }) => <Ionicons name="heart-outline" color={color} size={size} />,
         }}
       />
       <Drawer.Protected guard={showAdmin}>
@@ -114,6 +117,22 @@ export default function DrawerLayout() {
           }}
         />
       </Drawer.Protected>
+      <Drawer.Screen
+        name="settings"
+        options={{
+          title: 'Settings',
+          drawerLabel: 'Settings',
+          drawerIcon: ({ color, size }) => <Ionicons name="settings-outline" color={color} size={size} />,
+        }}
+      />
+      <Drawer.Screen
+        name="support-us"
+        options={{
+          title: 'Support Us',
+          drawerLabel: 'Support Us',
+          drawerIcon: ({ color, size }) => <Ionicons name="heart-outline" color={color} size={size} />,
+        }}
+      />
     </Drawer>
   );
 }

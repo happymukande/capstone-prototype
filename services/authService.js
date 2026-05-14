@@ -1,4 +1,5 @@
 import supabase, { hasSupabaseConfig } from '../lib/supabaseClient.js'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 
 const isBrowser = typeof window !== 'undefined'
 const isReactNative = typeof navigator !== 'undefined' && navigator.product === 'ReactNative'
@@ -12,15 +13,117 @@ let bootstrapPromise = null
 let authSubscription = null
 let anonymousSignInPromise = null
 const subscribers = new Set()
+const LOCAL_GUEST_STORAGE_KEY = 'capstone.localGuest.v1'
+const VALID_ROLES = new Set(['student', 'teacher', 'admin'])
 
 function extractRole(user) {
-  return user?.user_metadata?.role ?? null
+  const metadataRole = String(user?.user_metadata?.role ?? '').toLowerCase()
+  return VALID_ROLES.has(metadataRole) ? metadataRole : null
+}
+
+async function fetchUserRole(user) {
+  const fallbackRole = extractRole(user) ?? 'student'
+  if (!hasSupabaseConfig || !supabase || !user?.id) return fallbackRole
+
+  try {
+    const { data, error } = await supabase
+      .from('app_user_roles')
+      .select('role')
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    if (error) {
+      console.error('authService: failed to fetch user role:', error)
+      return fallbackRole
+    }
+
+    const databaseRole = String(data?.role ?? '').toLowerCase()
+    return VALID_ROLES.has(databaseRole) ? databaseRole : fallbackRole
+  } catch (err) {
+    console.error('authService: failed to fetch user role:', err)
+    return fallbackRole
+  }
 }
 
 function setCachedSession(session) {
   cachedSession = session ?? null
   cachedUser = session?.user ?? null
   cachedRole = extractRole(cachedUser)
+}
+
+async function setCachedSessionWithRole(session) {
+  cachedSession = session ?? null
+  cachedUser = session?.user ?? null
+  cachedRole = cachedUser ? await fetchUserRole(cachedUser) : null
+}
+
+function createLocalGuestUser(storedUser) {
+  const now = new Date().toISOString()
+  const id = storedUser?.id ?? `guest-${Date.now()}`
+  return {
+    id,
+    email: '',
+    is_anonymous: true,
+    app_metadata: {},
+    user_metadata: {
+      role: 'student',
+      username: storedUser?.user_metadata?.username ?? `guest_${id.slice(-6)}`,
+      full_name: 'Guest learner',
+      isGuest: true,
+    },
+    aud: 'authenticated',
+    created_at: storedUser?.created_at ?? now,
+    updated_at: now,
+  }
+}
+
+function setCachedLocalGuest(user) {
+  cachedSession = {
+    access_token: `local-${user.id}`,
+    token_type: 'bearer',
+    user,
+  }
+  cachedUser = user
+  cachedRole = 'student'
+}
+
+async function loadLocalGuestSession() {
+  if (!isClient) return false
+  try {
+    const raw = await AsyncStorage.getItem(LOCAL_GUEST_STORAGE_KEY)
+    if (!raw) return false
+    const parsed = JSON.parse(raw)
+    const user = createLocalGuestUser(parsed?.user)
+    setCachedLocalGuest(user)
+    return true
+  } catch (err) {
+    console.error('authService: failed to load local guest session:', err)
+    return false
+  }
+}
+
+async function saveLocalGuestSession(user) {
+  if (!isClient) return
+  try {
+    await AsyncStorage.setItem(
+      LOCAL_GUEST_STORAGE_KEY,
+      JSON.stringify({
+        user,
+        savedAt: new Date().toISOString(),
+      })
+    )
+  } catch (err) {
+    console.error('authService: failed to save local guest session:', err)
+  }
+}
+
+async function clearLocalGuestSession() {
+  if (!isClient) return
+  try {
+    await AsyncStorage.removeItem(LOCAL_GUEST_STORAGE_KEY)
+  } catch (err) {
+    console.error('authService: failed to clear local guest session:', err)
+  }
 }
 
 function notifySubscribers(event) {
@@ -44,9 +147,11 @@ function startAuthListener() {
   if (!isClient || !hasSupabaseConfig || !supabase || authSubscription) return
 
   const { data } = supabase.auth.onAuthStateChange((event, session) => {
-    setCachedSession(session)
-    authReady = true
-    notifySubscribers(event)
+    void (async () => {
+      await setCachedSessionWithRole(session)
+      authReady = true
+      notifySubscribers(event)
+    })()
   })
 
   authSubscription = data?.subscription ?? data
@@ -124,10 +229,17 @@ async function clearStaleSession() {
 }
 
 export async function bootstrapAuth() {
-  if (!isClient || !hasSupabaseConfig || !supabase) {
+  if (!isClient) {
     authReady = true
     setCachedSession(null)
     return { session: null, user: null, role: null }
+  }
+
+  if (!hasSupabaseConfig || !supabase) {
+    await loadLocalGuestSession()
+    authReady = true
+    notifySubscribers('INITIAL_SESSION')
+    return { session: cachedSession, user: cachedUser, role: cachedRole }
   }
 
   if (bootstrapPromise) return bootstrapPromise
@@ -149,7 +261,11 @@ export async function bootstrapAuth() {
       console.error('authService: getSession failed:', error)
     }
 
-    setCachedSession(session)
+    if (session) {
+      await setCachedSessionWithRole(session)
+    } else {
+      await loadLocalGuestSession()
+    }
     authReady = true
     notifySubscribers('INITIAL_SESSION')
 
@@ -187,7 +303,7 @@ export async function signUp(email, password, role = 'student') {
     }
 
     if (response.data?.session) {
-      setCachedSession(response.data.session)
+      await setCachedSessionWithRole(response.data.session)
       notifySubscribers('SIGNED_UP')
     }
 
@@ -218,7 +334,8 @@ export async function signIn(email, password) {
     }
 
     if (response.data?.session) {
-      setCachedSession(response.data.session)
+      await clearLocalGuestSession()
+      await setCachedSessionWithRole(response.data.session)
       notifySubscribers('SIGNED_IN')
     }
 
@@ -262,7 +379,10 @@ export async function signOut() {
   }
 
   if (!hasSupabaseConfig || !supabase) {
-    return { success: false, error: 'Supabase client not initialized' }
+    await clearLocalGuestSession()
+    setCachedSession(null)
+    notifySubscribers('SIGNED_OUT')
+    return { success: true }
   }
 
   try {
@@ -272,6 +392,7 @@ export async function signOut() {
       return { success: false, error }
     }
 
+    await clearLocalGuestSession()
     setCachedSession(null)
     notifySubscribers('SIGNED_OUT')
     return { success: true }
@@ -282,8 +403,16 @@ export async function signOut() {
 }
 
 export async function ensureSupabaseUserId() {
-  if (!isClient || !hasSupabaseConfig || !supabase) return null
+  if (!isClient) return null
   if (cachedUser?.id) return cachedUser.id
+
+  if (!hasSupabaseConfig || !supabase) {
+    const user = createLocalGuestUser()
+    setCachedLocalGuest(user)
+    await saveLocalGuestSession(user)
+    notifySubscribers('LOCAL_GUEST_SIGNIN')
+    return user.id
+  }
 
   try {
     const { user } = await bootstrapAuth()
@@ -295,21 +424,30 @@ export async function ensureSupabaseUserId() {
           const response = await supabase.auth.signInAnonymously()
           if (response.error) {
             console.error('authService anonymous sign-in error:', response.error)
-            return null
+            const user = createLocalGuestUser()
+            setCachedLocalGuest(user)
+            await saveLocalGuestSession(user)
+            notifySubscribers('LOCAL_GUEST_SIGNIN')
+            return user.id
           }
 
           if (response.data?.session) {
-            setCachedSession(response.data.session)
+            await clearLocalGuestSession()
+            await setCachedSessionWithRole(response.data.session)
           } else if (response.data?.user) {
             cachedUser = response.data.user
-            cachedRole = extractRole(response.data.user)
+            cachedRole = await fetchUserRole(response.data.user)
           }
 
           notifySubscribers('ANONYMOUS_SIGNIN')
           return response.data?.user?.id ?? null
         } catch (err) {
           console.error('authService anonymous sign-in unexpected error:', err)
-          return null
+          const user = createLocalGuestUser()
+          setCachedLocalGuest(user)
+          await saveLocalGuestSession(user)
+          notifySubscribers('LOCAL_GUEST_SIGNIN')
+          return user.id
         }
       })()
     }
@@ -320,5 +458,20 @@ export async function ensureSupabaseUserId() {
   } catch (err) {
     console.error('ensureSupabaseUserId unexpected error:', err)
     return null
+  }
+}
+
+export async function continueAsGuest() {
+  const userId = await ensureSupabaseUserId()
+  if (!userId) {
+    return { success: false, error: 'Unable to create a guest session' }
+  }
+
+  return {
+    success: true,
+    data: {
+      user: cachedUser,
+      session: cachedSession,
+    },
   }
 }

@@ -1,18 +1,24 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import { AppThemeColors } from '../../src/constants/theme';
-import { AppRole, useRole } from '../../src/context/RoleContext';
+import { useRole } from '../../src/context/RoleContext';
 import { useAppTheme } from '../../src/context/ThemeContext';
-import { useProgress } from '../../src/context/ProgressContext';
-import { isBackendDisabled } from '../../src/lib/supabase';
-
-const ROLE_OPTIONS: AppRole[] = ['student', 'teacher', 'admin'];
+import { signOut } from '../../services/authService';
 
 export default function SettingsScreen() {
-  const { role, setRole } = useRole();
+  const router = useRouter();
+  const { role } = useRole();
   const { colors, mode, isDarkMode, toggleDarkMode } = useAppTheme();
-  const { cloudUserId } = useProgress();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+
+  const handleSignOut = async () => {
+    if (isSigningOut) return;
+    setIsSigningOut(true);
+    await signOut();
+    router.replace('/login');
+  };
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -40,31 +46,22 @@ export default function SettingsScreen() {
 
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>Account Role</Text>
-        <View style={styles.roleRow}>
-          {ROLE_OPTIONS.map((candidateRole) => {
-            const selected = role === candidateRole;
-            return (
-              <Pressable
-                key={candidateRole}
-                style={[styles.roleButton, selected && styles.roleButtonActive]}
-                onPress={() => setRole(candidateRole)}
-              >
-                <Text style={[styles.roleButtonText, selected && styles.roleButtonTextActive]}>
-                  {candidateRole}
-                </Text>
-              </Pressable>
-            );
-          })}
+        <View style={styles.themeRow}>
+          <View style={styles.themeTextWrap}>
+            <Text style={styles.themeLabel}>{role}</Text>
+            <Text style={styles.metaText}>Your role is set when you create your account.</Text>
+          </View>
         </View>
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Environment</Text>
-        <Text style={styles.metaText}>
-          APP ROLE ENV: {process.env.EXPO_PUBLIC_APP_ROLE ? process.env.EXPO_PUBLIC_APP_ROLE : 'Not set'}
-        </Text>
-        <Text style={styles.metaText}>Backend Disabled: {isBackendDisabled ? 'Yes' : 'No'}</Text>
-        <Text style={styles.metaText}>Cloud User ID: {cloudUserId ?? 'Not resolved yet'}</Text>
+        <Text style={styles.sectionTitle}>Account</Text>
+        <Pressable style={styles.editDetailsButton} onPress={() => router.push('/edit-details')}>
+          <Text style={styles.editDetailsButtonText}>Edit user details</Text>
+        </Pressable>
+        <Pressable style={styles.signOutButton} onPress={handleSignOut} disabled={isSigningOut}>
+          <Text style={styles.signOutButtonText}>{isSigningOut ? 'Signing out…' : 'Sign out'}</Text>
+        </Pressable>
       </View>
     </ScrollView>
   );
@@ -141,32 +138,28 @@ function createStyles(colors: AppThemeColors) {
       marginBottom: 2,
       textTransform: 'capitalize',
     },
-    roleRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 8,
-    },
-    roleButton: {
-      minWidth: '31%',
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: 14,
-      paddingVertical: 12,
-      paddingHorizontal: 12,
-      alignItems: 'center',
-      backgroundColor: colors.surfaceAlt,
-    },
-    roleButtonActive: {
+    editDetailsButton: {
       backgroundColor: colors.primaryStrong,
-      borderColor: colors.primaryStrong,
+      borderRadius: 14,
+      paddingVertical: 14,
+      alignItems: 'center',
+      marginTop: 8,
     },
-    roleButtonText: {
-      color: colors.textPrimary,
+    editDetailsButtonText: {
+      color: colors.onStrong,
+      fontSize: 15,
       fontWeight: '700',
-      textTransform: 'capitalize',
-      fontSize: 14,
     },
-    roleButtonTextActive: {
+    signOutButton: {
+      backgroundColor: colors.danger,
+      borderRadius: 14,
+      paddingVertical: 14,
+      alignItems: 'center',
+      marginTop: 8,
+    },
+    signOutButtonText: {
+      fontSize: 15,
+      fontWeight: '700',
       color: colors.onStrong,
     },
     metaText: {

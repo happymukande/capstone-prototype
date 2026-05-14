@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useAuth } from '../../context/AuthProvider';
 import {
   createLessonRemote,
   deleteLessonRemote,
@@ -9,8 +10,21 @@ import {
 import { AppThemeColors } from '../../src/constants/theme';
 import { fetchTeacherAnalytics, TeacherAnalyticsSummary } from '../../src/services/analyticsApi';
 import { LessonContent, LessonStatus, QuizQuestion } from '../../src/types/curriculum';
+import { useProgress } from '../../src/context/ProgressContext';
 import { useRole } from '../../src/context/RoleContext';
 import { useAppTheme } from '../../src/context/ThemeContext';
+import {
+  PlatformUser,
+  ReviewResponse,
+  ReviewSurvey,
+  isUserOnline,
+  loadPlatformUsers,
+  loadReviewResponses,
+  loadReviewSurveys,
+  publishReviewSurvey,
+  saveReviewSurvey,
+  upsertPlatformUser,
+} from '../../src/services/communityData';
 import { ThemePalette, getThemePalette } from '../../src/utils/themePalette';
 
 const ACCESS_TOKEN =
@@ -62,6 +76,12 @@ type LessonFormState = {
   quizzes: QuizDraft[];
 };
 
+type SurveyFormState = {
+  title: string;
+  description: string;
+  questionsText: string;
+};
+
 function createEmptyQuiz(): QuizDraft {
   return {
     question: '',
@@ -81,6 +101,12 @@ const DEFAULT_FORM: LessonFormState = {
   tagsCsv: '',
   lectureNotesText: '',
   quizzes: [],
+};
+
+const DEFAULT_SURVEY_FORM: SurveyFormState = {
+  title: 'App Review',
+  description: 'Tell us what is working and what should improve.',
+  questionsText: 'What do you like most about the app?\nWhat should we improve next?',
 };
 
 function getOrderFromLessonId(lessonId: string) {
@@ -172,7 +198,9 @@ function getErrorMessage(error: unknown) {
 }
 
 export default function AdminScreen() {
+  const { user } = useAuth();
   const { role } = useRole();
+  const { progressMap } = useProgress();
   const { colors, isDarkMode } = useAppTheme();
   const palette = useMemo(() => getThemePalette(colors, isDarkMode), [colors, isDarkMode]);
   const adminPalette = useMemo(() => createAdminPalette(colors, palette), [colors, palette]);
@@ -188,6 +216,11 @@ export default function AdminScreen() {
   const [error, setError] = useState<string | null>(null);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const [analytics, setAnalytics] = useState<TeacherAnalyticsSummary | null>(null);
+  const [surveyForm, setSurveyForm] = useState<SurveyFormState>(DEFAULT_SURVEY_FORM);
+  const [surveys, setSurveys] = useState<ReviewSurvey[]>([]);
+  const [reviewResponses, setReviewResponses] = useState<ReviewResponse[]>([]);
+  const [platformUsers, setPlatformUsers] = useState<PlatformUser[]>([]);
+  const [surveyMessage, setSurveyMessage] = useState<string | null>(null);
 
   const isEditing = Boolean(selectedLessonId);
 
@@ -197,9 +230,7 @@ export default function AdminScreen() {
     try {
       const remoteLessons = await fetchCurriculum(true, ACCESS_TOKEN);
       if (!remoteLessons) {
-        throw new Error(
-          'No backend configured. Set EXPO_PUBLIC_API_BASE_URL or Supabase keys before using admin.'
-        );
+        throw new Error('No lesson content is available yet.');
       }
       setLessons(sortLessons(remoteLessons));
     } catch (err) {
@@ -216,7 +247,7 @@ export default function AdminScreen() {
     try {
       const summary = await fetchTeacherAnalytics(ACCESS_TOKEN);
       if (!summary) {
-        throw new Error('No analytics backend configured. Set EXPO_PUBLIC_API_BASE_URL or Supabase keys.');
+        throw new Error('No analytics data is available yet.');
       }
       setAnalytics(summary);
     } catch (err) {
@@ -227,13 +258,40 @@ export default function AdminScreen() {
     }
   }, []);
 
+  const loadCommunityAdminData = useCallback(async () => {
+    const [nextSurveys, nextResponses, nextUsers] = await Promise.all([
+      loadReviewSurveys(),
+      loadReviewResponses(),
+      loadPlatformUsers(),
+    ]);
+    setSurveys(nextSurveys);
+    setReviewResponses(nextResponses);
+    setPlatformUsers(nextUsers);
+  }, []);
+
   const refreshAdminData = useCallback(async () => {
-    await Promise.all([loadLessons(), loadAnalytics()]);
-  }, [loadLessons, loadAnalytics]);
+    await Promise.all([loadLessons(), loadAnalytics(), loadCommunityAdminData()]);
+  }, [loadLessons, loadAnalytics, loadCommunityAdminData]);
 
   useEffect(() => {
     void refreshAdminData();
   }, [refreshAdminData]);
+
+  useEffect(() => {
+    if (!user) return;
+    void upsertPlatformUser({ user, role, progressMap }).then(() => loadCommunityAdminData());
+  }, [loadCommunityAdminData, progressMap, role, user]);
+
+  const onlineUsers = useMemo(() => {
+    const now = Date.now();
+    return platformUsers.filter((platformUser) => isUserOnline(platformUser, now));
+  }, [platformUsers]);
+
+  const averageReviewStars = useMemo(() => {
+    if (reviewResponses.length === 0) return 0;
+    const total = reviewResponses.reduce((sum, response) => sum + response.stars, 0);
+    return Math.round((total / reviewResponses.length) * 10) / 10;
+  }, [reviewResponses]);
 
   const topLessonStats = useMemo(() => {
     if (!analytics) return [];
@@ -445,6 +503,49 @@ export default function AdminScreen() {
     }
   }, [refreshAdminData, resetForm, selectedLessonId]);
 
+  const handleCreateSurvey = useCallback(
+    async (publish: boolean) => {
+      setSurveyMessage(null);
+      setError(null);
+
+      try {
+        const questions = surveyForm.questionsText
+          .split('\n')
+          .map((question) => question.trim())
+          .filter(Boolean);
+
+        if (questions.length === 0) {
+          throw new Error('Add at least one review question.');
+        }
+
+        const survey = await saveReviewSurvey({
+          title: surveyForm.title,
+          description: surveyForm.description,
+          questions,
+          publish,
+        });
+        await loadCommunityAdminData();
+        setSurveyMessage(
+          publish
+            ? `Published "${survey.title}" to the Community tab.`
+            : `Saved "${survey.title}" as a draft.`
+        );
+      } catch (err) {
+        setError(getErrorMessage(err));
+      }
+    },
+    [loadCommunityAdminData, surveyForm]
+  );
+
+  const handlePublishSurvey = useCallback(
+    async (surveyId: string) => {
+      const survey = await publishReviewSurvey(surveyId);
+      await loadCommunityAdminData();
+      if (survey) setSurveyMessage(`Published "${survey.title}" to the Community tab.`);
+    },
+    [loadCommunityAdminData]
+  );
+
   if (role === 'student') {
     return (
       <ScrollView contentContainerStyle={styles.container}>
@@ -557,6 +658,126 @@ export default function AdminScreen() {
             ))}
           </>
         )}
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>{role === 'admin' ? 'Admin User Dashboard' : 'Teacher User Dashboard'}</Text>
+        <View style={styles.metricsGrid}>
+          <View style={styles.metricTile}>
+            <Text style={styles.metricLabel}>Users</Text>
+            <Text style={styles.metricValue}>{platformUsers.length}</Text>
+          </View>
+          <View style={styles.metricTile}>
+            <Text style={styles.metricLabel}>Online Now</Text>
+            <Text style={styles.metricValue}>{onlineUsers.length}</Text>
+          </View>
+          <View style={styles.metricTile}>
+            <Text style={styles.metricLabel}>Reviews</Text>
+            <Text style={styles.metricValue}>{reviewResponses.length}</Text>
+          </View>
+          <View style={styles.metricTile}>
+            <Text style={styles.metricLabel}>Avg Stars</Text>
+            <Text style={styles.metricValue}>{averageReviewStars}</Text>
+          </View>
+        </View>
+
+        {platformUsers.length === 0 && <Text style={styles.smallText}>No user activity has been recorded yet.</Text>}
+        {platformUsers.map((platformUser) => (
+          <View key={platformUser.id} style={styles.userRow}>
+            <View style={styles.lessonAnalyticsTextWrap}>
+              <Text style={styles.lessonAnalyticsTitle}>{platformUser.username}</Text>
+              <Text style={styles.lessonAnalyticsMeta}>
+                {role === 'admin'
+                  ? `Role ${platformUser.role} | ${platformUser.email || 'No email'} | ${platformUser.isGuest ? 'Guest' : 'Account'}`
+                  : `Courses: ${platformUser.coursesTaken.length ? platformUser.coursesTaken.join(', ') : 'None yet'}`}
+              </Text>
+              {role === 'admin' && (
+                <Text style={styles.lessonAnalyticsMeta}>
+                  Full name: {platformUser.fullName || 'Not set'} | Courses: {platformUser.coursesTaken.length ? platformUser.coursesTaken.join(', ') : 'None yet'}
+                </Text>
+              )}
+            </View>
+            <View style={[styles.lessonAnalyticsPill, isUserOnline(platformUser) ? null : styles.offlinePill]}>
+              <Text style={styles.lessonAnalyticsPillText}>{isUserOnline(platformUser) ? 'Online' : 'Away'}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Review Survey</Text>
+        <Text style={styles.smallText}>
+          Publish one survey at a time. Published surveys appear as Review App in Community.
+        </Text>
+        {surveyMessage && <Text style={styles.messageText}>{surveyMessage}</Text>}
+
+        <Text style={styles.label}>Survey title</Text>
+        <TextInput
+          style={styles.input}
+          value={surveyForm.title}
+          onChangeText={(value) => setSurveyForm((prev) => ({ ...prev, title: value }))}
+          placeholder="App Review"
+          placeholderTextColor={placeholderTextColor}
+        />
+
+        <Text style={styles.label}>Description</Text>
+        <TextInput
+          style={[styles.input, styles.multiline]}
+          multiline
+          value={surveyForm.description}
+          onChangeText={(value) => setSurveyForm((prev) => ({ ...prev, description: value }))}
+          placeholder="Tell learners what feedback you need"
+          placeholderTextColor={placeholderTextColor}
+        />
+
+        <Text style={styles.label}>Questions (one per line)</Text>
+        <TextInput
+          style={[styles.input, styles.largeMultiline]}
+          multiline
+          value={surveyForm.questionsText}
+          onChangeText={(value) => setSurveyForm((prev) => ({ ...prev, questionsText: value }))}
+          placeholder="What do you like most?"
+          placeholderTextColor={placeholderTextColor}
+        />
+
+        <View style={styles.formActions}>
+          <Pressable style={styles.secondaryBtn} onPress={() => void handleCreateSurvey(false)}>
+            <Text style={styles.secondaryBtnText}>Save Draft</Text>
+          </Pressable>
+          <Pressable style={styles.primaryBtn} onPress={() => void handleCreateSurvey(true)}>
+            <Text style={styles.primaryBtnText}>Publish Survey</Text>
+          </Pressable>
+        </View>
+
+        <Text style={styles.analyticsSubTitle}>Surveys</Text>
+        {surveys.length === 0 && <Text style={styles.smallText}>No review surveys yet.</Text>}
+        {surveys.map((survey) => (
+          <View key={survey.id} style={styles.lessonItem}>
+            <View style={styles.lessonItemRow}>
+              <Text style={styles.lessonItemTitle}>{survey.title}</Text>
+              <Text style={styles.lessonItemStatus}>{survey.status}</Text>
+            </View>
+            <Text style={styles.lessonItemMeta}>
+              {survey.questions.length} question(s) | Created {new Date(survey.createdAt).toLocaleString()}
+            </Text>
+            {survey.status !== 'published' && (
+              <Pressable style={styles.miniActionBtn} onPress={() => void handlePublishSurvey(survey.id)}>
+                <Text style={styles.miniActionBtnText}>Publish</Text>
+              </Pressable>
+            )}
+          </View>
+        ))}
+
+        <Text style={styles.analyticsSubTitle}>Recent Review Responses</Text>
+        {reviewResponses.length === 0 && <Text style={styles.smallText}>No review responses yet.</Text>}
+        {reviewResponses.slice(0, 5).map((response) => (
+          <View key={response.id} style={styles.lessonItem}>
+            <Text style={styles.lessonItemTitle}>
+              {response.username} rated {response.stars}/5
+            </Text>
+            <Text style={styles.lessonItemMeta}>{new Date(response.submittedAt).toLocaleString()}</Text>
+          </View>
+        ))}
       </View>
 
       <View style={styles.card}>
@@ -938,6 +1159,18 @@ function createStyles(theme: ReturnType<typeof createAdminPalette>) {
       backgroundColor: theme.cardAlt,
       gap: 10,
     },
+    userRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderRadius: 12,
+      padding: 12,
+      marginBottom: 8,
+      backgroundColor: theme.cardAlt,
+      gap: 10,
+    },
     lessonAnalyticsTextWrap: {
       flex: 1,
       paddingRight: 10,
@@ -960,6 +1193,9 @@ function createStyles(theme: ReturnType<typeof createAdminPalette>) {
       paddingHorizontal: 10,
       backgroundColor: theme.primaryAlt,
       alignItems: 'center',
+    },
+    offlinePill: {
+      backgroundColor: theme.actionMuted,
     },
     lessonAnalyticsPillText: {
       color: theme.onAccent,

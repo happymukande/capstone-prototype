@@ -1,25 +1,28 @@
 {
   "expo": {
-    "name": "capstone-prototype",
+    "name": "Eco-Ed",
     "slug": "capstone-prototype",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "capstone-prototype",
+    "icon": "./assets/images/eco-ed-logo.png",
+    "scheme": "eco-ed",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.happymukande.capstoneprototype"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#1bbe3e",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "CAMERA",
+        "READ_MEDIA_IMAGES",
+        "READ_EXTERNAL_STORAGE"
+      ],
       "predictiveBackGestureEnabled": false,
       "package": "com.happymukande.capstoneprototype"
     },
@@ -32,17 +35,24 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
+          "image": "./assets/images/eco-ed-logo.png",
+          "imageWidth": 220,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff",
           "dark": {
             "backgroundColor": "#000000"
           }
         }
+      ],
+      "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Eco-Ed to choose a profile photo from your library.",
+          "cameraPermission": "Allow Eco-Ed to take a profile photo with your camera."
+        }
       ]
     ],
-    
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
@@ -51,7 +61,10 @@
       "router": {},
       "eas": {
         "projectId": "d40d0518-6699-4bd0-b847-3fb43135b2f6"
-      }
+      },
+      "EXPO_PUBLIC_SUPABASE_URL": "https://yxlhhzhejackrrylrehz.supabase.co",
+      "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_tsX9CI7RqvycEO3rmMmURQ_2rx6tYY4",
+      "EXPO_PUBLIC_DISABLE_BACKEND": "false"
     },
     "owner": "happymukande",
     "updates": {
