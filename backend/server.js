@@ -1,6 +1,7 @@
 const path = require('path');
-const ROOT_DIR = process.cwd();
+const ROOT_DIR = __dirname;
 require('dotenv').config({ path: path.join(ROOT_DIR, '.env') });
+require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
@@ -15,10 +16,6 @@ const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key';
 const TEACHER_API_KEY = process.env.TEACHER_API_KEY || '';
 const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
-const groq = new OpenAI({
-  apiKey: GROQ_API_KEY || 'missing-groq-api-key',
-  baseURL: 'https://api.groq.com/openai/v1',
-});
 
 const VALID_STATUSES = new Set(['draft', 'published', 'archived']);
 const PASS_THRESHOLD = Number(process.env.LESSON_PASS_THRESHOLD || 80);
@@ -99,10 +96,15 @@ async function readBody(req) {
 
 async function createChatReply(message) {
   if (!GROQ_API_KEY || GROQ_API_KEY === 'your_groq_api_key_here') {
-    const error = new Error('GROQ_API_KEY is not configured on the backend. Add your GroqCloud key to backend/.env.');
+    const error = new Error('GROQ_API_KEY is not configured on the backend.');
     error.statusCode = 500;
     throw error;
   }
+
+  const groq = new OpenAI({
+    apiKey: GROQ_API_KEY,
+    baseURL: 'https://api.groq.com/openai/v1',
+  });
 
   const completion = await groq.chat.completions.create({
     model: GROQ_MODEL,
@@ -449,7 +451,7 @@ app.use((error, req, res, next) => {
 
 app.use(async (req, res) => {
   try {
-    const reqUrl = new URL(req.url, `http://${req.headers.host}`);
+    const reqUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const pathname = reqUrl.pathname;
 
     if (req.method === 'OPTIONS') {
@@ -658,11 +660,35 @@ app.use(async (req, res) => {
 
     sendJson(res, 404, { error: 'Not found' });
   } catch (error) {
+    console.error('Request failed:', error);
     const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
     sendJson(res, statusCode, { error: error instanceof Error ? error.message : 'Internal server error' });
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+app.use((error, req, res, next) => {
+  console.error('Unhandled Express error:', error);
+  if (res.headersSent) {
+    next(error);
+    return;
+  }
+  sendJson(res, 500, { error: 'Internal server error' });
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught exception:', error);
+  process.exit(1);
+});
+
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`Backend API listening on http://0.0.0.0:${PORT}`);
+});
+
+server.on('error', (error) => {
+  console.error('Server failed to start:', error);
+  process.exit(1);
 });
