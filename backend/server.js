@@ -76,24 +76,6 @@ async function writeContentStore(store) {
   await fs.writeFile(CONTENT_FILE, JSON.stringify(store, null, 2), 'utf8');
 }
 
-async function readBody(req) {
-  if (req.body && typeof req.body === 'object') return req.body;
-
-  let body = '';
-  for await (const chunk of req) {
-    body += chunk;
-  }
-  if (!body) return {};
-
-  try {
-    return JSON.parse(body);
-  } catch {
-    const error = new Error('Invalid JSON request body.');
-    error.statusCode = 400;
-    throw error;
-  }
-}
-
 async function createChatReply(message) {
   if (!GROQ_API_KEY || GROQ_API_KEY === 'your_groq_api_key_here') {
     const error = new Error('GROQ_API_KEY is not configured on the backend.');
@@ -122,16 +104,6 @@ async function createChatReply(message) {
   });
 
   return completion.choices?.[0]?.message?.content?.trim() || 'I could not generate a response right now.';
-}
-
-function getUserIdFromPath(urlPathname) {
-  const match = urlPathname.match(/^\/progress\/([^/]+)$/);
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-function getLessonIdFromPath(urlPathname) {
-  const match = urlPathname.match(/^\/content\/lessons\/([^/]+)$/);
-  return match ? decodeURIComponent(match[1]) : null;
 }
 
 function toStringValue(value, fallback = '') {
@@ -432,6 +404,12 @@ function calculateAnalyticsSnapshot(progressStore, contentStore) {
   };
 }
 
+function asyncHandler(handler) {
+  return (req, res, next) => {
+    Promise.resolve(handler(req, res, next)).catch(next);
+  };
+}
+
 const app = express();
 
 app.use(cors({
@@ -439,7 +417,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-key'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
 }));
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
 app.use((error, req, res, next) => {
   if (error instanceof SyntaxError) {
@@ -449,230 +427,237 @@ app.use((error, req, res, next) => {
   next(error);
 });
 
-app.use(async (req, res) => {
-  try {
-    const reqUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    const pathname = reqUrl.pathname;
+app.get('/health', (req, res) => {
+  sendJson(res, 200, {
+    ok: true,
+    service: 'capstone-backend-api',
+    now: new Date().toISOString(),
+    contentApi: true,
+    analyticsApi: true,
+    chatApi: true,
+    security: {
+      bearerTokenSupport: true,
+      teacherRoleEnabled: Boolean(TEACHER_API_KEY),
+      adminRoleEnabled: Boolean(ADMIN_API_KEY),
+    },
+  });
+});
 
-    if (req.method === 'OPTIONS') {
-      sendJson(res, 200, { ok: true });
-      return;
-    }
+app.post('/chat', asyncHandler(async (req, res) => {
+  const payload = req.body && typeof req.body === 'object' ? req.body : {};
+  const message = typeof payload.message === 'string' ? payload.message.trim() : '';
 
-    if (req.method === 'GET' && pathname === '/health') {
-      sendJson(res, 200, {
-        ok: true,
-        service: 'capstone-backend-api',
-        now: new Date().toISOString(),
-        contentApi: true,
-        analyticsApi: true,
-        security: {
-          bearerTokenSupport: true,
-          teacherRoleEnabled: Boolean(TEACHER_API_KEY),
-          adminRoleEnabled: Boolean(ADMIN_API_KEY),
-        },
-      });
-      return;
-    }
-
-    if (req.method === 'POST' && pathname === '/chat') {
-      const payload = await readBody(req);
-      const message = typeof payload.message === 'string' ? payload.message.trim() : '';
-
-      if (!message) {
-        sendJson(res, 400, { error: 'message is required.' });
-        return;
-      }
-
-      const reply = await createChatReply(message);
-      sendJson(res, 200, { reply });
-      return;
-    }
-
-    if (req.method === 'GET' && pathname === '/analytics/summary') {
-      if (!requireTeacherOrAdmin(req, res)) return;
-
-      const progressStore = await readStore();
-      const contentStore = await readContentStore();
-      const summary = calculateAnalyticsSnapshot(progressStore, contentStore);
-
-      sendJson(res, 200, summary);
-      return;
-    }
-
-    if (req.method === 'GET' && pathname === '/content/lessons') {
-      const includeDraft = reqUrl.searchParams.get('includeDraft') === 'true';
-      const store = await readContentStore();
-
-      const lessons = includeDraft && hasRole(req, ['teacher', 'admin'])
-        ? store.lessons
-        : store.lessons.filter((lesson) => lesson.status === 'published');
-
-      sendJson(res, 200, { lessons, count: lessons.length });
-      return;
-    }
-
-    if (req.method === 'GET' && pathname.startsWith('/content/lessons/')) {
-      const lessonId = getLessonIdFromPath(pathname);
-      if (!lessonId) {
-        sendJson(res, 400, { error: 'Invalid lesson id path.' });
-        return;
-      }
-
-      const store = await readContentStore();
-      const lesson = store.lessons.find((item) => item.id === lessonId);
-
-      if (!lesson) {
-        sendJson(res, 404, { error: 'Lesson not found.' });
-        return;
-      }
-
-      if (lesson.status !== 'published' && !hasRole(req, ['teacher', 'admin'])) {
-        sendJson(res, 404, { error: 'Lesson not found.' });
-        return;
-      }
-
-      sendJson(res, 200, { lesson });
-      return;
-    }
-
-    if (req.method === 'POST' && pathname === '/content/lessons') {
-      if (!requireTeacherOrAdmin(req, res)) return;
-
-      const payload = await readBody(req);
-      const normalized = normalizeLesson(payload);
-      if (!normalized.valid) {
-        sendJson(res, 400, { error: normalized.error });
-        return;
-      }
-
-      const store = await readContentStore();
-      const exists = store.lessons.some((lesson) => lesson.id === normalized.value.id);
-      if (exists) {
-        sendJson(res, 409, { error: 'A lesson with this id already exists.' });
-        return;
-      }
-
-      store.lessons.push(normalized.value);
-      await writeContentStore(store);
-
-      sendJson(res, 201, { ok: true, lesson: normalized.value });
-      return;
-    }
-
-    if (req.method === 'PUT' && pathname.startsWith('/content/lessons/')) {
-      if (!requireTeacherOrAdmin(req, res)) return;
-
-      const lessonId = getLessonIdFromPath(pathname);
-      if (!lessonId) {
-        sendJson(res, 400, { error: 'Invalid lesson id path.' });
-        return;
-      }
-
-      const payload = await readBody(req);
-      const store = await readContentStore();
-      const index = store.lessons.findIndex((lesson) => lesson.id === lessonId);
-
-      if (index === -1) {
-        sendJson(res, 404, { error: 'Lesson not found.' });
-        return;
-      }
-
-      const normalized = normalizeLesson({
-        ...store.lessons[index],
-        ...payload,
-        id: lessonId,
-        createdAt: store.lessons[index].createdAt,
-      });
-
-      if (!normalized.valid) {
-        sendJson(res, 400, { error: normalized.error });
-        return;
-      }
-
-      store.lessons[index] = normalized.value;
-      await writeContentStore(store);
-
-      sendJson(res, 200, { ok: true, lesson: normalized.value });
-      return;
-    }
-
-    if (req.method === 'DELETE' && pathname.startsWith('/content/lessons/')) {
-      if (!requireAdmin(req, res)) return;
-
-      const lessonId = getLessonIdFromPath(pathname);
-      if (!lessonId) {
-        sendJson(res, 400, { error: 'Invalid lesson id path.' });
-        return;
-      }
-
-      const store = await readContentStore();
-      const before = store.lessons.length;
-      store.lessons = store.lessons.filter((lesson) => lesson.id !== lessonId);
-
-      if (store.lessons.length === before) {
-        sendJson(res, 404, { error: 'Lesson not found.' });
-        return;
-      }
-
-      await writeContentStore(store);
-      sendJson(res, 200, { ok: true, deletedId: lessonId });
-      return;
-    }
-
-    if (req.method === 'GET' && pathname.startsWith('/progress/')) {
-      const userId = getUserIdFromPath(pathname);
-      if (!userId) {
-        sendJson(res, 400, { error: 'Invalid userId path.' });
-        return;
-      }
-
-      const store = await readStore();
-      const progressMap = store.users[userId]?.progressMap ?? {};
-      sendJson(res, 200, { userId, progressMap });
-      return;
-    }
-
-    if (req.method === 'POST' && pathname === '/progress/sync') {
-      const payload = await readBody(req);
-      const userId = typeof payload.userId === 'string' ? payload.userId : '';
-      const progressMap = payload.progressMap;
-
-      if (!userId) {
-        sendJson(res, 400, { error: 'userId is required.' });
-        return;
-      }
-      if (!progressMap || typeof progressMap !== 'object' || Array.isArray(progressMap)) {
-        sendJson(res, 400, { error: 'progressMap must be an object.' });
-        return;
-      }
-
-      const store = await readStore();
-      store.users[userId] = {
-        progressMap,
-        updatedAt: new Date().toISOString(),
-      };
-      await writeProgressStore(store);
-
-      sendJson(res, 200, { ok: true, userId, updatedAt: store.users[userId].updatedAt });
-      return;
-    }
-
-    sendJson(res, 404, { error: 'Not found' });
-  } catch (error) {
-    console.error('Request failed:', error);
-    const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
-    sendJson(res, statusCode, { error: error instanceof Error ? error.message : 'Internal server error' });
+  if (!message) {
+    sendJson(res, 400, { error: 'message is required.' });
+    return;
   }
+
+  const reply = await createChatReply(message);
+  sendJson(res, 200, { reply });
+}));
+
+app.all('/chat', (req, res) => {
+  res.set('Allow', 'POST');
+  sendJson(res, 405, { error: 'Method not allowed. Use POST /chat.' });
+});
+
+app.get('/analytics/summary', asyncHandler(async (req, res) => {
+  if (!requireTeacherOrAdmin(req, res)) return;
+
+  const progressStore = await readStore();
+  const contentStore = await readContentStore();
+  const summary = calculateAnalyticsSnapshot(progressStore, contentStore);
+
+  sendJson(res, 200, summary);
+}));
+
+app.get('/content', (req, res) => {
+  sendJson(res, 200, {
+    ok: true,
+    routes: [
+      'GET /content/lessons',
+      'GET /content/lessons/:lessonId',
+      'POST /content/lessons',
+      'PUT /content/lessons/:lessonId',
+      'DELETE /content/lessons/:lessonId',
+    ],
+  });
+});
+
+app.get('/content/lessons', asyncHandler(async (req, res) => {
+  const includeDraft = req.query.includeDraft === 'true';
+  const store = await readContentStore();
+
+  const lessons = includeDraft && hasRole(req, ['teacher', 'admin'])
+    ? store.lessons
+    : store.lessons.filter((lesson) => lesson.status === 'published');
+
+  sendJson(res, 200, { lessons, count: lessons.length });
+}));
+
+app.post('/content/lessons', asyncHandler(async (req, res) => {
+  if (!requireTeacherOrAdmin(req, res)) return;
+
+  const payload = req.body && typeof req.body === 'object' ? req.body : {};
+  const normalized = normalizeLesson(payload);
+  if (!normalized.valid) {
+    sendJson(res, 400, { error: normalized.error });
+    return;
+  }
+
+  const store = await readContentStore();
+  const exists = store.lessons.some((lesson) => lesson.id === normalized.value.id);
+  if (exists) {
+    sendJson(res, 409, { error: 'A lesson with this id already exists.' });
+    return;
+  }
+
+  store.lessons.push(normalized.value);
+  await writeContentStore(store);
+
+  sendJson(res, 201, { ok: true, lesson: normalized.value });
+}));
+
+app.get('/content/lessons/:lessonId', asyncHandler(async (req, res) => {
+  const lessonId = String(req.params.lessonId || '').trim();
+  if (!lessonId) {
+    sendJson(res, 400, { error: 'Invalid lesson id path.' });
+    return;
+  }
+
+  const store = await readContentStore();
+  const lesson = store.lessons.find((item) => item.id === lessonId);
+
+  if (!lesson) {
+    sendJson(res, 404, { error: 'Lesson not found.' });
+    return;
+  }
+
+  if (lesson.status !== 'published' && !hasRole(req, ['teacher', 'admin'])) {
+    sendJson(res, 404, { error: 'Lesson not found.' });
+    return;
+  }
+
+  sendJson(res, 200, { lesson });
+}));
+
+app.put('/content/lessons/:lessonId', asyncHandler(async (req, res) => {
+  if (!requireTeacherOrAdmin(req, res)) return;
+
+  const lessonId = String(req.params.lessonId || '').trim();
+  if (!lessonId) {
+    sendJson(res, 400, { error: 'Invalid lesson id path.' });
+    return;
+  }
+
+  const payload = req.body && typeof req.body === 'object' ? req.body : {};
+  const store = await readContentStore();
+  const index = store.lessons.findIndex((lesson) => lesson.id === lessonId);
+
+  if (index === -1) {
+    sendJson(res, 404, { error: 'Lesson not found.' });
+    return;
+  }
+
+  const normalized = normalizeLesson({
+    ...store.lessons[index],
+    ...payload,
+    id: lessonId,
+    createdAt: store.lessons[index].createdAt,
+  });
+
+  if (!normalized.valid) {
+    sendJson(res, 400, { error: normalized.error });
+    return;
+  }
+
+  store.lessons[index] = normalized.value;
+  await writeContentStore(store);
+
+  sendJson(res, 200, { ok: true, lesson: normalized.value });
+}));
+
+app.delete('/content/lessons/:lessonId', asyncHandler(async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+
+  const lessonId = String(req.params.lessonId || '').trim();
+  if (!lessonId) {
+    sendJson(res, 400, { error: 'Invalid lesson id path.' });
+    return;
+  }
+
+  const store = await readContentStore();
+  const before = store.lessons.length;
+  store.lessons = store.lessons.filter((lesson) => lesson.id !== lessonId);
+
+  if (store.lessons.length === before) {
+    sendJson(res, 404, { error: 'Lesson not found.' });
+    return;
+  }
+
+  await writeContentStore(store);
+  sendJson(res, 200, { ok: true, deletedId: lessonId });
+}));
+
+app.get('/progress', (req, res) => {
+  sendJson(res, 200, {
+    ok: true,
+    routes: [
+      'GET /progress/:userId',
+      'POST /progress/sync',
+    ],
+  });
+});
+
+app.post('/progress/sync', asyncHandler(async (req, res) => {
+  const payload = req.body && typeof req.body === 'object' ? req.body : {};
+  const userId = typeof payload.userId === 'string' ? payload.userId.trim() : '';
+  const progressMap = payload.progressMap;
+
+  if (!userId) {
+    sendJson(res, 400, { error: 'userId is required.' });
+    return;
+  }
+  if (!progressMap || typeof progressMap !== 'object' || Array.isArray(progressMap)) {
+    sendJson(res, 400, { error: 'progressMap must be an object.' });
+    return;
+  }
+
+  const store = await readStore();
+  store.users[userId] = {
+    progressMap,
+    updatedAt: new Date().toISOString(),
+  };
+  await writeProgressStore(store);
+
+  sendJson(res, 200, { ok: true, userId, updatedAt: store.users[userId].updatedAt });
+}));
+
+app.get('/progress/:userId', asyncHandler(async (req, res) => {
+  const userId = String(req.params.userId || '').trim();
+  if (!userId) {
+    sendJson(res, 400, { error: 'Invalid userId path.' });
+    return;
+  }
+
+  const store = await readStore();
+  const progressMap = store.users[userId]?.progressMap ?? {};
+  sendJson(res, 200, { userId, progressMap });
+}));
+
+app.use((req, res) => {
+  sendJson(res, 404, { error: 'Not found' });
 });
 
 app.use((error, req, res, next) => {
-  console.error('Unhandled Express error:', error);
+  console.error('Request failed:', error);
   if (res.headersSent) {
     next(error);
     return;
   }
-  sendJson(res, 500, { error: 'Internal server error' });
+
+  const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
+  sendJson(res, statusCode, { error: error instanceof Error ? error.message : 'Internal server error' });
 });
 
 process.on('unhandledRejection', (reason) => {
